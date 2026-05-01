@@ -23,13 +23,13 @@ _DEFAULT_SAGA_REQUEST_QUEUE = "PAYTRACE.SAGA.REQ"
 
 def display_banner() -> None:
     banner = r"""
-        ____              ______
-       / __ \____ ___  __/_  __/________ _________
-      / /_/ / __ `/ / / / / / / ___/ __ `/ ___/ _ \
-     / ____/ /_/ / /_/ / / / / /  / /_/ / /__/  __/
-    /_/    \__,_/\__, / /_/ /_/   \__,_/\___/\___/
-                /____/
-    """
+            ____                   _____       __            __    __          __  
+            / __ \____  ___  ____  / __(_)___  / /____  _____/ /_  / /   ____ _/ /_ 
+            / / / / __ \/ _ \/ __ \/ /_/ / __ \/ __/ _ \/ ___/ __ \/ /   / __ `/ __ \
+            / /_/ / /_/ /  __/ / / / __/ / / / / /_/  __/ /__/ / / / /___/ /_/ / /_/ /
+            \____/ .___/\___/_/ /_/_/ /_/_/ /_/\__/\___/\___/_/ /_/_____/\__,_/_.___/ 
+                /_/                                                                   
+            """
     print(banner)
     Logging.info("===============================================")
     Logging.info("Starting PayTrace Orchestrator")
@@ -59,7 +59,7 @@ def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
 def run() -> None:
     RabbitMQHelper.initialize_connection()
     RabbitMQHelper.consume_queue(get_saga_request_queue(), handle_saga_request)
-
+ 
 
 if __name__ == "__main__":
     try:

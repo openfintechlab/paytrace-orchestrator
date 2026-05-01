@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import Mock
 
 from src.utilities.ConfigLoader import ConfigLoader
 from src.utilities.DBHelper import DBHelper
@@ -7,6 +8,7 @@ from src.utilities.DBHelper import DBHelper
 @pytest.fixture(autouse=True)
 def reset_db_helper(monkeypatch):
     monkeypatch.setattr(ConfigLoader._env, "read_env", lambda *args, **kwargs: None)
+    monkeypatch.setattr("src.utilities.ConfigLoader.dotenv_values", Mock(return_value={}))
     ConfigLoader.configurations = {}
     DBHelper.dispose_connection()
     yield

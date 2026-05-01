@@ -9,6 +9,7 @@ from src.utilities.ConfigLoader import ConfigLoader
 @pytest.fixture(autouse=True)
 def reset_config_loader_state(monkeypatch):
     monkeypatch.setattr(ConfigLoader._env, "read_env", lambda *args, **kwargs: None)
+    monkeypatch.setattr("src.utilities.ConfigLoader.dotenv_values", Mock(return_value={}))
 
     existing_oftl_keys = [key for key in os.environ if key.startswith("OFTL_")]
     for key in existing_oftl_keys:
@@ -65,6 +66,28 @@ def test_load_configurations_loads_only_valid_oftl_keys(monkeypatch):
         "OFTL_API_KEY_SECRET": "decrypted-value",
     }
     decrypt_mock.assert_called_once_with("encrypted-value")
+
+
+def test_load_configurations_reads_project_env_file(monkeypatch):
+    dotenv_values_mock = Mock(return_value={"OFTL_FILE_VALUE": "from-file"})
+    monkeypatch.setattr("src.utilities.ConfigLoader.dotenv_values", dotenv_values_mock)
+
+    loaded = ConfigLoader.load_configurations()
+
+    assert loaded["OFTL_FILE_VALUE"] == "from-file"
+    dotenv_values_mock.assert_called_once_with(ConfigLoader._ENV_FILE)
+
+
+def test_process_environment_overrides_env_file(monkeypatch):
+    monkeypatch.setattr(
+        "src.utilities.ConfigLoader.dotenv_values",
+        Mock(return_value={"OFTL_RABITMQ_USERNAME": "from-file"}),
+    )
+    monkeypatch.setenv("OFTL_RABITMQ_USERNAME", "from-process")
+
+    loaded = ConfigLoader.load_configurations()
+
+    assert loaded["OFTL_RABITMQ_USERNAME"] == "from-process"
 
 
 def test_get_triggers_lazy_load_and_uses_default(monkeypatch):
