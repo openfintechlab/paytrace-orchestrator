@@ -327,6 +327,36 @@ class RabbitMQHelper:
         return cls._run_operation_with_retry("queue publish", _send_once)
 
     @classmethod
+    def bind_queue_to_topics(
+        cls,
+        queue_name: str,
+        exchange_name: str,
+        topics: list[str],
+        *,
+        exchange_type: str = "topic",
+    ) -> None:
+        """Declare a topic exchange, declare the queue, and bind each topic routing key."""
+        durable_queue = cls._as_bool(ConfigLoader.get("OFTL_RABITMQ_QUEUE_DURABLE", "true"), True)
+        durable_exchange = cls._as_bool(ConfigLoader.get("OFTL_RABITMQ_EXCHANGE_DURABLE", "true"), True)
+        channel = cls._ensure_channel()
+        channel.exchange_declare(
+            exchange=exchange_name,
+            exchange_type=exchange_type,
+            durable=durable_exchange,
+        )
+        channel.queue_declare(queue=queue_name, durable=durable_queue)
+
+        for topic in topics:
+            channel.queue_bind(exchange=exchange_name, queue=queue_name, routing_key=topic)
+
+        Logging.info_context(
+            "RabbitMQ queue bound to subscribed topics.",
+            exchange_name=exchange_name,
+            queue_name=queue_name,
+            topics=topics,
+        )
+
+    @classmethod
     def consume_queue(
         cls,
         queue_name: str,

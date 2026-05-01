@@ -6,6 +6,7 @@ PayTrace orchestrator entrypoint.
 from __future__ import annotations
 
 import sys
+import json
 from typing import Any
 
 try:
@@ -19,6 +20,8 @@ except ModuleNotFoundError:
 
 _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_SAGA_REQUEST_QUEUE = "PAYTRACE.SAGA.REQ"
+_DEFAULT_SAGA_EXCHANGE = "paytrace.saga"
+_DEFAULT_SAGA_SUBSCRIBED_TO = ["#"]
 
 
 def display_banner() -> None:
@@ -36,6 +39,8 @@ def display_banner() -> None:
     Logging.info("Version: %s", ConfigLoader.get("OFTL_SCA_VERSION", "N/A"))
     Logging.info("Log Level: %s", ConfigLoader.get("OFTL_LOG_LEVEL", _DEFAULT_LOG_LEVEL))
     Logging.info("Saga Request Queue: %s", get_saga_request_queue())
+    Logging.info("Saga Exchange: %s", get_saga_exchange())
+    Logging.info("Saga Subscribed Topics: %s", get_saga_subscribed_topics())
     Logging.info("RabbitMQ Host: %s", ConfigLoader.get("OFTL_RABITMQ_HOST", "localhost"))
     Logging.info("===============================================")
 
@@ -44,6 +49,35 @@ def get_saga_request_queue() -> str:
     """Return the queue the orchestrator waits on."""
     queue_name = str(ConfigLoader.get("OFTL_RABITMQ_SAGA_REQUEST_QUEUE", _DEFAULT_SAGA_REQUEST_QUEUE)).strip()
     return queue_name or _DEFAULT_SAGA_REQUEST_QUEUE
+
+
+def get_saga_exchange() -> str:
+    """Return the topic exchange used for saga subscriptions."""
+    exchange_name = str(ConfigLoader.get("OFTL_RABITMQ_SAGA_EXCHANGE", _DEFAULT_SAGA_EXCHANGE)).strip()
+    return exchange_name or _DEFAULT_SAGA_EXCHANGE
+
+
+def get_saga_subscribed_topics() -> list[str]:
+    """Return configured saga subscription topics from JSON array or comma-separated text."""
+    raw_value = ConfigLoader.get("OFTL_RABITMQ_SAGA_SUSCRIBED_TO")
+    if raw_value is None:
+        return list(_DEFAULT_SAGA_SUBSCRIBED_TO)
+
+    raw_text = str(raw_value).strip()
+    if not raw_text:
+        return list(_DEFAULT_SAGA_SUBSCRIBED_TO)
+
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, list):
+        topics = [str(topic).strip() for topic in parsed if str(topic).strip()]
+    else:
+        topics = [topic.strip() for topic in raw_text.split(",") if topic.strip()]
+
+    return topics or list(_DEFAULT_SAGA_SUBSCRIBED_TO)
 
 
 def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
@@ -55,10 +89,24 @@ def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
         message_size=len(body),
     )
 
+    Logging.debug_context(
+        "Saga request received. (MESSAGE TRACE)",
+        delivery_tag=getattr(method, "delivery_tag", None),
+        correlation_id=getattr(properties, "correlation_id", None),
+        message_size=len(body),
+        message_body=body.decode("utf-8", errors="replace")[:500]
+    )
+
 
 def run() -> None:
+    queue_name = get_saga_request_queue()
     RabbitMQHelper.initialize_connection()
-    RabbitMQHelper.consume_queue(get_saga_request_queue(), handle_saga_request)
+    RabbitMQHelper.bind_queue_to_topics(
+        queue_name,
+        get_saga_exchange(),
+        get_saga_subscribed_topics(),
+    )
+    RabbitMQHelper.consume_queue(queue_name, handle_saga_request)
  
 
 if __name__ == "__main__":

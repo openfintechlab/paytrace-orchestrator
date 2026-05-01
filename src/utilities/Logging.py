@@ -48,6 +48,10 @@ class Logging:
         cls._logger.info(message, *args, **kwargs)
 
     @classmethod
+    def debug(cls, message: str, *args: Any, **kwargs: Any) -> None:
+        cls._logger.debug(message, *args, **kwargs)
+
+    @classmethod
     def warning(cls, message: str, *args: Any, **kwargs: Any) -> None:
         cls._logger.warning(message, *args, **kwargs)
 
@@ -58,6 +62,10 @@ class Logging:
     @classmethod
     def info_context(cls, message: str, **context: Any) -> None:
         cls._logger.info(cls._render_message(message, **context))
+
+    @classmethod
+    def debug_context(cls, message: str, **context: Any) -> None:
+        cls._logger.debug(cls._render_message(message, **context))
 
     @classmethod
     def warning_context(cls, message: str, **context: Any) -> None:

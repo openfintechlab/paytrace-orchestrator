@@ -146,3 +146,34 @@ def test_consume_queue_declares_saga_queue_and_starts_consuming(monkeypatch):
         ("basic_consume", ("PAYTRACE.SAGA.REQ", False, True)),
         ("start_consuming", True),
     ]
+
+
+def test_bind_queue_to_topics_declares_exchange_queue_and_bindings(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    class FakeChannel:
+        is_closed = False
+
+        def exchange_declare(self, exchange, exchange_type, durable):
+            calls.append(("exchange_declare", (exchange, exchange_type, durable)))
+
+        def queue_declare(self, queue, durable):
+            calls.append(("queue_declare", (queue, durable)))
+
+        def queue_bind(self, exchange, queue, routing_key):
+            calls.append(("queue_bind", (exchange, queue, routing_key)))
+
+    monkeypatch.setattr(RabbitMQHelper, "_ensure_channel", classmethod(lambda cls: FakeChannel()))
+
+    RabbitMQHelper.bind_queue_to_topics(
+        "PAYTRACE.SAGA.REQ",
+        "paytrace.saga",
+        ["payments.created", "payments.failed"],
+    )
+
+    assert calls == [
+        ("exchange_declare", ("paytrace.saga", "topic", True)),
+        ("queue_declare", ("PAYTRACE.SAGA.REQ", True)),
+        ("queue_bind", ("paytrace.saga", "PAYTRACE.SAGA.REQ", "payments.created")),
+        ("queue_bind", ("paytrace.saga", "PAYTRACE.SAGA.REQ", "payments.failed")),
+    ]
