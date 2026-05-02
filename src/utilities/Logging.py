@@ -6,9 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from environs import Env
-
-env = Env()
+from .ConfigLoader import ConfigLoader
 
 
 class Logging:
@@ -18,12 +16,13 @@ class Logging:
     _DEFAULT_FORMAT = "[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
     _SENSITIVE_MARKERS = ("password", "secret", "token", "credential", "authorization")
 
-    _level_name = env.str("OFTL_LOG_LEVEL", _DEFAULT_LEVEL).upper()
-    _log_format = env.str("OFTL_LOG_FORMAT", _DEFAULT_FORMAT).strip() or _DEFAULT_FORMAT
+    _level_name = str(ConfigLoader.get("OFTL_LOG_LEVEL", _DEFAULT_LEVEL)).upper()
+    _log_format = str(ConfigLoader.get("OFTL_LOG_FORMAT", _DEFAULT_FORMAT)).strip() or _DEFAULT_FORMAT
     _log_level = getattr(logging, _level_name, logging.INFO)
 
-    logging.basicConfig(level=_log_level, format=_log_format)
+    logging.basicConfig(level=_log_level, format=_log_format, force=True)
     _logger = logging.getLogger("OFTL")
+    _logger.setLevel(_log_level)
 
     @classmethod
     def _sanitize_context(cls, context: dict[str, Any]) -> dict[str, Any]:
