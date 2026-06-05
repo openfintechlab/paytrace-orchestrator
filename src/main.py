@@ -86,6 +86,7 @@ def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
         "Saga request received.",
         delivery_tag=getattr(method, "delivery_tag", None),
         correlation_id=getattr(properties, "correlation_id", None),
+        routing_key=getattr(method, "routing_key", None),
         message_size=len(body),
     )
 
@@ -93,6 +94,7 @@ def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
         "Saga request received. (MESSAGE TRACE)",
         delivery_tag=getattr(method, "delivery_tag", None),
         correlation_id=getattr(properties, "correlation_id", None),
+        routing_key=getattr(method, "routing_key", None),
         message_size=len(body),
         message_body=body.decode("utf-8", errors="replace")[:500]
     )
