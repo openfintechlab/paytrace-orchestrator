@@ -2,9 +2,19 @@ name: Docker Build Pipeline
 
 on:
   push:
-    branches: [ "main", "develop" ] # Change to your target branches
+    branches: 
+      - "main"
+      - "develop"
+      - "dev/*"
+      - "feature/*"
+      - "release/*"
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: 
+      - "main"
+      - "develop"
+      - "dev/*"
+      - "feature/*"
+      - "release/*"
 
 jobs:
   determine-strategy:
@@ -18,8 +28,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
-            # For a standard push, look for a specific keyword in the commit message to trigger optionally.
-            # e.g., including "[build docker]" in your commit message.
+            # For a standard push to dev/*, feature/*, etc., look for the optional keyword
             if echo "${{ github.event.head_commit.message }}" | grep -q "\[build docker\]"; then
               echo "should_build=true" >> $GITHUB_OUTPUT
             else
@@ -29,7 +38,7 @@ jobs:
 
   build-docker:
     needs: determine-strategy
-    # This job runs if it's a PR, OR if the push message contained the optional trigger flag
+    # Runs automatically on PRs, or on pushes containing "[build docker]"
     if: ${{ needs.determine-strategy.outputs.should_build == 'true' }}
     runs-on: ubuntu-latest
 
@@ -40,20 +49,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Optional: Log in to GitHub Packages (GHCR) if you want to push the image later
-      # - name: Log in to Registry
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: ghcr.io
-      #     username: ${{ github.actor }}
-      #     password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: false # Set to true on PR merge if you want to publish it
-          tags: my-app:latest
+          push: false # Keeps it as a compilation/validation check only
+          tags: paytrace-orchestrator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
