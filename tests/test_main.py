@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import src.main as main
 
@@ -54,3 +55,41 @@ def test_run_initializes_rabbitmq_binds_topics_and_consumes_saga_queue(monkeypat
         ["payments.created", "payments.failed"],
     )
     consume_mock.assert_called_once_with("PAYTRACE.SAGA.REQ", main.handle_saga_request)
+
+
+def test_extract_file_id_from_saga_event_prefers_headers():
+    properties = SimpleNamespace(headers={"file_id": "file-from-header"})
+
+    assert main.extract_file_id_from_saga_event(b'{"payload":{"file_id":"file-from-body"}}', properties) == "file-from-header"
+
+
+def test_handle_saga_request_delegates_completion_check_for_file_event(monkeypatch):
+    handled_file_ids: list[str] = []
+
+    class _FakeCompletionHandler:
+        def process_file_if_complete(self, file_id):
+            handled_file_ids.append(file_id)
+
+    monkeypatch.setattr(main, "FileCompletionHandler", _FakeCompletionHandler)
+
+    main.handle_saga_request(
+        b'{"event_code":"EV003","payload":{"message_payload":{"file_id":"file-123"}}}',
+        method=SimpleNamespace(delivery_tag=1, routing_key="payment.row.processed"),
+        properties=SimpleNamespace(correlation_id="corr-1", headers={}),
+    )
+
+    assert handled_file_ids == ["file-123"]
+
+
+def test_handle_saga_request_skips_completion_check_without_file_id(monkeypatch):
+    class _FakeCompletionHandler:
+        def process_file_if_complete(self, file_id):
+            raise AssertionError("should not call completion handler")
+
+    monkeypatch.setattr(main, "FileCompletionHandler", _FakeCompletionHandler)
+
+    main.handle_saga_request(
+        b'{"event_code":"EV003","payload":{}}',
+        method=SimpleNamespace(delivery_tag=1, routing_key="payment.row.processed"),
+        properties=SimpleNamespace(correlation_id="corr-1", headers={}),
+    )

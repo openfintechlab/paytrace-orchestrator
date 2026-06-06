@@ -10,10 +10,12 @@ import json
 from typing import Any
 
 try:
+    from domain.FileCompletionHandler import FileCompletionHandler
     from utilities.ConfigLoader import ConfigLoader
     from utilities.Logging import Logging
     from utilities.RabbitMQHelper import RabbitMQConnectionError, RabbitMQHelper, RabbitMQShutdownRequested
 except ModuleNotFoundError:
+    from src.domain.FileCompletionHandler import FileCompletionHandler
     from src.utilities.ConfigLoader import ConfigLoader
     from src.utilities.Logging import Logging
     from src.utilities.RabbitMQHelper import RabbitMQConnectionError, RabbitMQHelper, RabbitMQShutdownRequested
@@ -80,8 +82,43 @@ def get_saga_subscribed_topics() -> list[str]:
     return topics or list(_DEFAULT_SAGA_SUBSCRIBED_TO)
 
 
+def extract_file_id_from_saga_event(body: bytes, properties: Any) -> str | None:
+    """Extract file_id from supported saga event shapes or RabbitMQ headers."""
+    headers = getattr(properties, "headers", None)
+    if isinstance(headers, dict):
+        header_file_id = str(headers.get("file_id", "") or "").strip()
+        if header_file_id:
+            return header_file_id
+
+    try:
+        event = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(event, dict):
+        return None
+
+    top_level_file_id = str(event.get("file_id", "") or "").strip()
+    if top_level_file_id:
+        return top_level_file_id
+
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        payload_file_id = str(payload.get("file_id", "") or "").strip()
+        if payload_file_id:
+            return payload_file_id
+
+        message_payload = payload.get("message_payload")
+        if isinstance(message_payload, dict):
+            message_payload_file_id = str(message_payload.get("file_id", "") or "").strip()
+            if message_payload_file_id:
+                return message_payload_file_id
+
+    return None
+
+
 def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
-    """Acknowledge inbound saga requests without applying business workflow logic."""
+    """Handle inbound saga requests by delegating business workflow checks."""
     Logging.info_context(
         "Saga request received.",
         delivery_tag=getattr(method, "delivery_tag", None),
@@ -98,6 +135,18 @@ def handle_saga_request(body: bytes, method: Any, properties: Any) -> None:
         message_size=len(body),
         message_body=body.decode("utf-8", errors="replace")[:500]
     )
+
+    file_id = extract_file_id_from_saga_event(body, properties)
+    if not file_id:
+        Logging.debug_context(
+            "Saga request does not include file_id; skipping file completion check.",
+            delivery_tag=getattr(method, "delivery_tag", None),
+            correlation_id=getattr(properties, "correlation_id", None),
+            routing_key=getattr(method, "routing_key", None),
+        )
+        return
+
+    FileCompletionHandler().process_file_if_complete(file_id)
 
 
 def run() -> None:

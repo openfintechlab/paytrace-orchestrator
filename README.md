@@ -38,6 +38,8 @@ For the two projects to work together, `paytrace-file-ingest-csv` `OFTL_RABITMQ_
 ```text
 src/
   main.py                  # Entrypoint, banner, RabbitMQ binding, and saga message handler
+  domain/
+    FileCompletionHandler.py # File completion checks and response CSV generation
   utilities/
     ConfigLoader.py        # OFTL_* configuration loading from .env and environment
     Logging.py             # Centralized logging helper with context sanitization
@@ -47,6 +49,7 @@ tests/
   conftest.py              # Pytest setup
   test_config_loader.py    # ConfigLoader tests
   test_db_helper.py        # DBHelper tests
+  test_file_completion_handler.py # Completion and response generation tests
   test_main.py             # Orchestrator startup and saga config tests
   test_rabbitmq_helper.py  # RabbitMQ helper retry/bind/consume tests
 ```
@@ -147,7 +150,7 @@ The orchestrator is a worker process, not an HTTP API, so it does not expose hea
 
 ### Database
 
-The current orchestrator startup path does not initialize the database automatically, but `DBHelper` is available for workflow code that needs PostgreSQL access.
+`FileCompletionHandler` uses `DBHelper` to read `oftl_fwcsv_registry` and `oftl_fwcsv_row_dispatch`, set `response_status`, and persist response-file metadata.
 
 - `OFTL_POSTGRESDB_USERNAME`
 - `OFTL_POSTGRESDB_PASSWORD`
@@ -156,6 +159,16 @@ The current orchestrator startup path does not initialize the database automatic
 - `OFTL_POSTGRESDB_NAME` (optional, default: `public`)
 - `OFTL_POSTGRESDB_SCHEMA` (optional, default: `public`)
 - `OFTL_POSTGRESDB_POOLSIZE` (optional, default: `10`)
+
+### CSV Response Files
+
+- `OFTL_FWCSV_RESPONSE_DIR` (optional, default: `fwcsv/response`) - Directory where completed file response CSVs are written
+
+Response CSV files are generated with this strict column order:
+
+```text
+TransferId,TransactionId,Status,ResponseCode,ResponseMessage,ProcessedTimestamp
+```
 
 ### RabbitMQ
 
@@ -200,9 +213,17 @@ On startup, the orchestrator:
 3. Declares `OFTL_RABITMQ_SAGA_REQUEST_QUEUE` as a durable queue.
 4. Binds the queue to every routing key in `OFTL_RABITMQ_SAGA_SUSCRIBED_TO`.
 5. Starts consuming messages with `prefetch_count=1`.
-6. Acknowledges each message after `handle_saga_request(...)` completes.
+6. Extracts `file_id` from saga event headers or payload, when present.
+7. Delegates completion checks and response generation to `FileCompletionHandler`.
+8. Acknowledges each message after `handle_saga_request(...)` completes.
 
 If the message handler raises an exception, the message is negatively acknowledged and requeued.
+
+### File Completion and Response Generation
+
+The saga handler does not own file-completion business rules. It delegates to `src/domain/FileCompletionHandler.py`.
+
+`FileCompletionHandler` considers a file complete only when the count of terminal rows in `oftl_fwcsv_row_dispatch` with status `PROCESSED` or `FAILED` equals `oftl_fwcsv_registry.row_count`. Once complete, it conditionally moves `response_status` to `READY_FOR_RESPONSE` so only one worker can generate the response file. After the response CSV is written, it updates `response_status` to `RESP_FILE_GENERATED` and stores `response_file_name` plus `response_file_generated_at`.
 
 ## Testing
 
@@ -219,9 +240,10 @@ uv run pytest tests/test_main.py -v
 uv run pytest tests/test_rabbitmq_helper.py -v
 uv run pytest tests/test_config_loader.py -v
 uv run pytest tests/test_db_helper.py -v
+uv run pytest tests/test_file_completion_handler.py -v
 ```
 
-Run `uv sync` first to ensure dependencies are installed. The current tests cover configuration loading, RabbitMQ retry/bind/consume behavior, DB helper initialization behavior, and orchestrator startup wiring.
+Run `uv sync` first to ensure dependencies are installed. The current tests cover configuration loading, RabbitMQ retry/bind/consume behavior, DB helper initialization behavior, orchestrator startup wiring, file completion checks, and CSV response generation.
 
 ## Major Libraries Used
 
