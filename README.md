@@ -163,6 +163,8 @@ The orchestrator is a worker process, not an HTTP API, so it does not expose hea
 ### CSV Response Files
 
 - `OFTL_FWCSV_RESPONSE_DIR` (optional, default: `fwcsv/response`) - Directory where completed file response CSVs are written
+- `OFTL_ORCHESTRATOR_COMPLETION_WAIT_SECONDS` (optional, default: `5`) - Maximum time to wait for row terminal status after a file event
+- `OFTL_ORCHESTRATOR_COMPLETION_POLL_SECONDS` (optional, default: `0.5`) - Poll interval while waiting for row terminal status
 
 Response CSV files are generated with this strict column order:
 
@@ -223,7 +225,9 @@ If the message handler raises an exception, the message is negatively acknowledg
 
 The saga handler does not own file-completion business rules. It delegates to `src/domain/FileCompletionHandler.py`.
 
-`FileCompletionHandler` considers a file complete only when the count of terminal rows in `oftl_fwcsv_row_dispatch` with status `PROCESSED` or `FAILED` equals `oftl_fwcsv_registry.row_count`. Once complete, it conditionally moves `response_status` to `READY_FOR_RESPONSE` so only one worker can generate the response file. After the response CSV is written, it updates `response_status` to `RESP_FILE_GENERATED` and stores `response_file_name` plus `response_file_generated_at`.
+`FileCompletionHandler` considers a file complete only when the count of terminal rows in `oftl_fwcsv_row_dispatch` with status `PROCESSED` or `FAILED` equals `oftl_fwcsv_registry.row_count`. Since row-processed events can arrive before the row status commit is visible, the handler waits briefly and polls before deciding the file is incomplete. Once complete, it conditionally moves `response_status` to `READY_FOR_RESPONSE` so only one worker can generate the response file. After the response CSV is written, it updates `response_status` to `RESP_FILE_GENERATED` and stores `response_file_name` plus `response_file_generated_at`.
+
+If a previous run created the response CSV but stopped before the final registry update, a later event can finalize the existing response file while the registry is still in `READY_FOR_RESPONSE`.
 
 ## Testing
 

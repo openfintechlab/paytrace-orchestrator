@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
@@ -29,6 +30,11 @@ class FileCompletionHandler:
     """
     _SQL_GET_REGISTRY_ROW_COUNT: ClassVar[str] = """
         SELECT row_count
+        FROM oftl_fwcsv_registry
+        WHERE file_id = :fileId
+    """
+    _SQL_GET_RESPONSE_STATE: ClassVar[str] = """
+        SELECT response_status, response_file_name
         FROM oftl_fwcsv_registry
         WHERE file_id = :fileId
     """
@@ -75,6 +81,10 @@ class FileCompletionHandler:
     _CNST_STATUS_GENERATED: ClassVar[str] = "RESP_FILE_GENERATED"
     _CNST_RESPONSE_DIR_CONFIG: ClassVar[str] = "OFTL_FWCSV_RESPONSE_DIR"
     _CNST_DEFAULT_RESPONSE_DIR: ClassVar[str] = "fwcsv/response"
+    _CNST_COMPLETION_WAIT_SECONDS_CONFIG: ClassVar[str] = "OFTL_ORCHESTRATOR_COMPLETION_WAIT_SECONDS"
+    _CNST_COMPLETION_POLL_SECONDS_CONFIG: ClassVar[str] = "OFTL_ORCHESTRATOR_COMPLETION_POLL_SECONDS"
+    _CNST_DEFAULT_COMPLETION_WAIT_SECONDS: ClassVar[float] = 5.0
+    _CNST_DEFAULT_COMPLETION_POLL_SECONDS: ClassVar[float] = 0.5
     _CNST_RESPONSE_FILE_SUFFIX: ClassVar[str] = "response.csv"
     _CNST_CSV_HEADERS: ClassVar[tuple[str, ...]] = (
         "TransferId",
@@ -91,6 +101,14 @@ class FileCompletionHandler:
             self._CNST_DEFAULT_RESPONSE_DIR,
         )
         self.response_dir = Path(str(configured_response_dir))
+        self.completion_wait_seconds = self._get_float_config(
+            self._CNST_COMPLETION_WAIT_SECONDS_CONFIG,
+            self._CNST_DEFAULT_COMPLETION_WAIT_SECONDS,
+        )
+        self.completion_poll_seconds = self._get_float_config(
+            self._CNST_COMPLETION_POLL_SECONDS_CONFIG,
+            self._CNST_DEFAULT_COMPLETION_POLL_SECONDS,
+        )
 
     def is_file_complete(self, file_id: str) -> bool:
         """Return True when terminal row count equals registry row_count."""
@@ -111,10 +129,13 @@ class FileCompletionHandler:
     def process_file_if_complete(self, file_id: str) -> Path | None:
         """Generate a response file once when all rows have reached terminal state."""
         safe_file_id = self._normalize_file_id(file_id)
-        if not self.is_file_complete(safe_file_id):
+        if not self._wait_until_file_complete(safe_file_id):
             return None
 
         if not self._set_ready_status(safe_file_id):
+            finalized_path = self._finalize_existing_ready_response(safe_file_id)
+            if finalized_path is not None:
+                return finalized_path
             Logging.info_context(
                 "Skipping response generation because file is already locked or generated.",
                 file_id=safe_file_id,
@@ -131,6 +152,15 @@ class FileCompletionHandler:
         )
         return response_file_path
 
+    def _wait_until_file_complete(self, file_id: str) -> bool:
+        deadline = time.monotonic() + max(0.0, self.completion_wait_seconds)
+        while True:
+            if self.is_file_complete(file_id):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(max(0.0, self.completion_poll_seconds))
+
     def _get_terminal_row_count(self, file_id: str) -> int:
         rows = DBHelper.execute_select(self._SQL_CHECK_COMPLETION_COUNT, {"fileId": file_id})
         if not rows:
@@ -142,6 +172,10 @@ class FileCompletionHandler:
         if not rows:
             return None
         return self._as_int(rows[0].get("row_count", 0) or 0)
+
+    def _get_response_state(self, file_id: str) -> dict[str, Any] | None:
+        rows = DBHelper.execute_select(self._SQL_GET_RESPONSE_STATE, {"fileId": file_id})
+        return rows[0] if rows else None
 
     def _set_ready_status(self, file_id: str) -> bool:
         affected_rows = DBHelper.execute_update(
@@ -165,6 +199,24 @@ class FileCompletionHandler:
         if affected_rows != 1:
             raise RuntimeError(f"Unable to finalize response status for file_id={file_id}.")
 
+    def _finalize_existing_ready_response(self, file_id: str) -> Path | None:
+        response_state = self._get_response_state(file_id)
+        if not response_state or response_state.get("response_status") != self._CNST_STATUS_READY:
+            return None
+
+        response_file = self._find_existing_response_file(file_id)
+        if response_file is None:
+            return None
+
+        self._set_final_status(file_id, response_file.name)
+        Logging.info_context(
+            "Finalized registry for existing response CSV.",
+            file_id=file_id,
+            response_file_name=response_file.name,
+            response_file_path=str(response_file),
+        )
+        return response_file
+
     def _generate_response_file(self, file_id: str) -> Path:
         transaction_rows = DBHelper.execute_select(
             self._SQL_GET_TRANSACTION_RESULTS,
@@ -183,6 +235,16 @@ class FileCompletionHandler:
             for row in transaction_rows:
                 writer.writerow(self._format_response_row(row))
         return response_file_path
+
+    def _find_existing_response_file(self, file_id: str) -> Path | None:
+        if not self.response_dir.is_dir():
+            return None
+        response_files = sorted(
+            self.response_dir.glob(f"{file_id}.*.{self._CNST_RESPONSE_FILE_SUFFIX}"),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )
+        return response_files[0] if response_files else None
 
     def _validate_transaction_rows(
         self,
@@ -224,3 +286,9 @@ class FileCompletionHandler:
             return int(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Expected an int-compatible database value, got {value!r}.") from exc
+
+    def _get_float_config(self, key: str, default: float) -> float:
+        try:
+            return float(ConfigLoader.get(key, default))
+        except (TypeError, ValueError):
+            return default
