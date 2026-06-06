@@ -1,0 +1,59 @@
+name: Docker Build Pipeline
+
+on:
+  push:
+    branches: [ "main", "develop" ] # Change to your target branches
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  determine-strategy:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - id: check
+        run: |
+          # If it's a Pull Request (Merge Request), it is always mandatory.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            # For a standard push, look for a specific keyword in the commit message to trigger optionally.
+            # e.g., including "[build docker]" in your commit message.
+            if echo "${{ github.event.head_commit.message }}" | grep -q "\[build docker\]"; then
+              echo "should_build=true" >> $GITHUB_OUTPUT
+            else
+              echo "should_build=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  build-docker:
+    needs: determine-strategy
+    # This job runs if it's a PR, OR if the push message contained the optional trigger flag
+    if: ${{ needs.determine-strategy.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Optional: Log in to GitHub Packages (GHCR) if you want to push the image later
+      # - name: Log in to Registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false # Set to true on PR merge if you want to publish it
+          tags: my-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
