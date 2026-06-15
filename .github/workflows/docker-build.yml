@@ -76,5 +76,6 @@ jobs:
           tags: |
             openfintechlab/paytrace-orchestrator:latest
             openfintechlab/paytrace-orchestrator:${{ github.sha }}
+            openfintechlab/paytrace-orchestrator:${{ github.ref_name }} # This will add the branch name as a tag for non-main branches
           cache-from: type=gha
           cache-to: type=gha,mode=max
