@@ -32,14 +32,14 @@ jobs:
           # 1. Evaluate Build Intent
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
-          elif echo "${{ github.event.head_commit.message }}" | grep -q "\[build docker\]"; then
+          elif echo "${{ github.event.head_commit.message }}" | grep -Eq "\[(build|buildandpush) docker\]"; then
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
 
           # 2. Evaluate Push Intent (Only push on true branch merges, not active Pull Requests)
-          if [ "${{ github.event_name }}" = "push" ] && { [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "develop" ] || [[ "${{ github.ref_name }}" == release/* ]]; }; then
+          if [ "${{ github.event_name }}" = "push" ] && { [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "develop" ] || [[ "${{ github.ref_name }}" == release/* ]] || echo "${{ github.event.head_commit.message }}" | grep -q "\[buildandpush docker\]"; }; then
             echo "should_push=true" >> $GITHUB_OUTPUT
           else
             echo "should_push=false" >> $GITHUB_OUTPUT
