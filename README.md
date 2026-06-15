@@ -96,6 +96,28 @@ From the `paytrace-orchestrator` project root:
 docker build -t paytrace-orchestrator:latest .
 ```
 
+The Dockerfile uses build arguments for its base images. Defaults are safe for
+local builds:
+
+```text
+DOCKER_PYTHON_BUILDER_IMAGE=dhi.io/python:3-debian13-sfw-dev
+DOCKER_PYTHON_RUNTIME_IMAGE=dhi.io/python:3
+```
+
+Override them when needed:
+
+```bash
+docker build \
+  --build-arg DOCKER_PYTHON_BUILDER_IMAGE=dhi.io/python:3-debian13-sfw-dev \
+  --build-arg DOCKER_PYTHON_RUNTIME_IMAGE=dhi.io/python:3 \
+  -t paytrace-orchestrator:latest .
+```
+
+The GitHub Docker build workflow reads the same values from GitHub Actions
+variables named `DOCKER_PYTHON_BUILDER_IMAGE` and
+`DOCKER_PYTHON_RUNTIME_IMAGE`, falling back to the defaults above when the
+variables are not set.
+
 ### 2. Run with an environment file
 
 ```bash

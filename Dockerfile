@@ -5,7 +5,9 @@
 # Generic Dockerfile for python application
 # Ref: https://hub.docker.com/hardened-images/catalog/dhi/python
 
-FROM dhi.io/python:3-debian13-sfw-dev AS builder
+ARG DOCKER_PYTHON_BUILDER_IMAGE=dhi.io/python:3-debian13-sfw-dev
+ARG DOCKER_PYTHON_RUNTIME_IMAGE=dhi.io/python:3
+FROM ${DOCKER_PYTHON_BUILDER_IMAGE} AS builder
 
 ENV PATH="/app/venv/bin:$PATH" \
     APP_HOME=/app \
@@ -22,10 +24,12 @@ COPY . ${APP_HOME}
 RUN uv sync --frozen
 RUN cp "$(command -v uv)" /app/uv
 
-FROM dhi.io/python:3 AS runtime
+FROM ${DOCKER_PYTHON_RUNTIME_IMAGE} AS runtime
+
+ARG DOCKER_PYTHON_RUNTIME_IMAGE
 
 LABEL "authur"="openfintechlab.com" \
-      "base-image-repo"="dhi.io/python:3/" \
+      "base-image-repo"="${DOCKER_PYTHON_RUNTIME_IMAGE}" \
       "copyright"="Copyright 2026-2030 OpenFintechlab, Inc. All rights reserved."
 
 ENV APP_HOME=/app \
